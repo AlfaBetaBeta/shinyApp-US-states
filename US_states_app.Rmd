@@ -1,0 +1,379 @@
+---
+title: "Shiny App - US states spatial analysis"
+author: "Alejandro Barrero Bilbao"
+date: '`r Sys.Date()`'
+output:
+  html_document: 
+    toc: true
+    toc_float: true
+    keep_md: true
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+### Introduction
+
+This R Markdown report concisely summarises the functionalities of a basic app based on the `spData::us_states` dataset. 
+
+For further information about this library and its datasets for spatial analysis, please refer to [the official library site](https://nowosad.github.io/spData/).
+
+The `us_states` dataset comprises the following features for all 48 *continental* states of the US and the District of Columbia, whereby the term *continental* is loosely defined here as referring to all states in mainland America between Canada and Mexico, hence excluding Hawaii and Alaska:
+
+* `GEOID`: character vector of geographic identifiers
+* `NAME`: character vector of state names
+* `REGION`: character vector of region names
+* `AREA`: area in square kilometers of units class
+* `total_pop_10`: numerical vector of total population in 2010
+* `total_pop_15`: numerical vector of total population in 2015
+* `geometry`: sfc_MULTIPOLYGON
+
+Check that the required packages are installed/loaded successfully:
+```{r loading, message=FALSE, echo=c(7,11)}
+
+# Remove all existing objects from the current environment
+rm(list = ls())
+
+# Install (if necessary) and load required packages
+install_packages_if_not_present <- function(x) {
+    if (sum(!x %in% installed.packages())) {
+        install.packages(x[!x %in% installed.packages()])
+    }
+}
+packages <- c("spData",
+              "leaflet",
+              "shiny",
+              "data.table")
+install_packages_if_not_present(packages)
+
+# Show loaded packages
+sapply(packages, require, character.only = TRUE)
+```
+### Aggregation by state/region
+
+The most basic subset of the reference dataset is by state `NAME` and `REGION`. In the interactive maps below, you can select your state of interest (tab `NAME`) and its relevant features for display in the `data.table` header. Alternatively, click on the highlighted state to have its summarised features pop up.
+
+
+Additionally, you can select your region of interest (tab `REGION`) for it to be highlighted in the map and its cumulative and average features per state summarised in the `data.table` header. Hovering over the states in the highlighted region enables the display of their name.
+
+```{r app1}
+
+shinyApp(
+  
+  ui <- fluidPage(
+          tags$head(tags$style('.selectize-dropdown {z-index: 10000}')),
+      
+          tabsetPanel(
+            
+              tabPanel("NAME",
+                        fluidRow(
+                            column(6,
+                                   selectInput("states", label = h4("Select a state"),
+                                                choices = us_states$NAME,
+                                                selected = us_states$NAME[29],
+                                                width='100%',
+                                                multiple = F)
+                            ),
+                            column(6,
+                                   selectInput("stfeat", label = h4("Select state feature(s)"),
+                                                choices = colnames(us_states)[2:6],
+                                                selected = colnames(us_states)[2],
+                                                width='100%',
+                                                multiple = T)
+                            )
+                        ),
+                        DT::dataTableOutput("state_dt"),
+                        leafletOutput("myUSmap_byState")
+              ),
+          
+              tabPanel("REGION",
+                        selectInput("region", label = h4("Select a region"),
+                                     choices = us_states$REGION,
+                                     selected = 1,
+                                     width='50%',
+                                     multiple = F),
+                        DT::dataTableOutput("region_dt"),
+                        leafletOutput("myUSmap_byRegion")
+              )
+          )
+  ),
+  
+  server <- function(input, output) {
+    data.index <- reactive({
+        which(us_states$NAME == input$states)
+    })
+    
+    region.states <- reactive({
+        subset(us_states, REGION == input$region, NAME, drop = T)
+    })
+    
+    data.longitude <- reactive({
+        us_states$geometry[[data.index()]][[1]][[1]][,1]
+    })
+    
+    data.latitude <- reactive({
+        us_states$geometry[[data.index()]][[1]][[1]][,2]
+    })
+    
+    data.popup <- reactive({
+        paste('State: ', input$states, '<br>',
+              'Population 2010: ', us_states$total_pop_10[data.index()], '<br>',
+              'Population 2015: ', us_states$total_pop_15[data.index()], '<br>',
+              'Region: ', us_states$REGION[data.index()], '<br>',
+              'Area: ', us_states$AREA[data.index()])
+    })
+    
+    
+    output$myUSmap_byState <- renderLeaflet({
+        
+        mymap <- leaflet(options = leafletOptions(minZoom = 3, maxZoom = 5)) %>%
+            setView(lng = -98.5795, lat = 37.8283, zoom = 4) %>%
+            addProviderTiles(providers$CartoDB.Positron) %>%
+            addPolygons(lng = data.longitude(), lat = data.latitude(), weight = 1.5, popup = data.popup())
+        
+        # Accommodate multi-polygons
+        if (length(us_states$geometry[[data.index()]]) > 1) {
+            
+            for (pol in 1:length(us_states$geometry[[data.index()]])) {
+                lng <- us_states$geometry[[data.index()]][[pol]][[1]][,1]
+                lat <- us_states$geometry[[data.index()]][[pol]][[1]][,2]
+                
+                mymap <- addPolygons(mymap, lng = lng, lat = lat, weight = 1.5, popup = data.popup())
+            }
+        }
+        return(mymap)
+    })
+    
+    compute_st_dt <- reactive({
+        dat <- us_states[data.index(), input$stfeat]
+        dat <- as.data.table(dat)
+        return(dat)
+    })
+    
+    output$state_dt <- DT::renderDataTable(compute_st_dt(), rownames=FALSE)
+    
+    compute_rg_dt <- reactive({
+        dat <- subset(us_states, REGION == input$region, c("REGION", "AREA", "total_pop_15"))
+        dat <- as.data.table(dat)
+        dat <- dat[, .(Tot.Area = sum(AREA),
+                       Avg.Area = mean(AREA),
+                       Tot.Population15 = sum(total_pop_15),
+                       Avg.Population15 = mean(total_pop_15)), by=REGION]
+        return(dat)
+    })
+    
+    output$region_dt <- DT::renderDataTable(compute_rg_dt(), rownames=FALSE)
+    
+    output$myUSmap_byRegion <- renderLeaflet({
+        
+        mymap <- leaflet(options = leafletOptions(minZoom = 3, maxZoom = 5)) %>%
+            setView(lng = -98.5795, lat = 37.8283, zoom = 4) %>%
+            addProviderTiles(providers$CartoDB.Positron)
+            
+        
+        for (s in region.states()) {
+          
+            index <- which(us_states$NAME == s)
+            lng <- us_states$geometry[[index]][[1]][[1]][,1]
+            lat <- us_states$geometry[[index]][[1]][[1]][,2]
+            
+            mymap <- addPolygons(mymap, lng = lng, lat = lat,
+                                 weight = 1.5, label = us_states$NAME[index])
+            
+            # Accommodate multi-polygons
+            if (length(us_states$geometry[[index]]) > 1) {
+            
+                for (pol in 1:length(us_states$geometry[[index]])) {
+                  
+                    lng <- us_states$geometry[[index]][[pol]][[1]][,1]
+                    lat <- us_states$geometry[[index]][[pol]][[1]][,2]
+                    
+                    mymap <- addPolygons(mymap, lng = lng, lat = lat,
+                                         weight = 1.5, label = us_states$NAME[index])
+                }
+            }
+        }
+        return(mymap)
+    })
+  },
+  
+  options = list(height = 700, width = '100%')
+)
+```
+
+
+### Evolution of population 2010-2015
+
+The only demographic features available in the `us_states` dataset are the total population values in years 2010 and 2015. With these, you can inspect the relative change in population over the timespan or, combined with each state `AREA`, the population density for either year.
+
+
+You can focus on a specific `REGION` or on the entire country from the dropdown menus below. Hovering over the active `REGION` enables the display of its state `NAME`s, and clicking on any state activates a popup with the demographic metric of interest.
+
+```{r app2}
+
+shinyApp(
+  
+  ui <- fluidPage(
+            tags$head(tags$style('.selectize-dropdown {z-index: 10000}')),
+            fluidRow(
+                            column(6,
+                                   selectInput("region", label = h4("Select a region"),
+                                                choices = c("All", levels(us_states$REGION)),
+                                                selected = 1,
+                                                width='100%',
+                                                multiple = F)
+                            ),
+                            column(6,
+                                   selectInput("rgdmft", label = h4("Select region demographic feature"),
+                                                choices = c("Population change 2010-2015",
+                                                            "Population density 2010",
+                                                            "Population density 2015"),
+                                                selected = 1,
+                                                width='100%',
+                                                multiple = F)
+                            )
+                        ),
+            leafletOutput("population_byRegion")
+        ),
+  
+  server <- function (input, output) {
+    
+      region.states <- reactive({
+          if (input$region == "All") {
+              rg <- subset(us_states, TRUE, NAME, drop = T)
+          } else {
+              rg <- subset(us_states, REGION == input$region, NAME, drop = T)
+          }
+          return(rg)
+      })
+      
+      region.pop <- reactive({
+          subset(us_states, NAME %in% region.states(), c(total_pop_15, total_pop_10))
+      })
+      
+      region.geo <- reactive({
+          subset(us_states, NAME %in% region.states(), geometry, drop = T)
+      })
+      
+      pop.change <- reactive({
+          (region.pop()$total_pop_15 - region.pop()$total_pop_10)/region.pop()$total_pop_10 * 100
+      })
+
+      pop.ft <- reactive({
+          if (input$rgdmft == "Population change 2010-2015") {
+              pf <- (us_states$total_pop_15 - us_states$total_pop_10)/us_states$total_pop_10 * 100
+          } else if (input$rgdmft == "Population density 2010") {
+              pf <- us_states$total_pop_10/as.numeric(us_states$AREA)
+          } else {
+              pf <- us_states$total_pop_15/as.numeric(us_states$AREA)
+          }
+          return(pf)
+      })
+      
+      color.palette <- reactive({
+          if (input$rgdmft == "Population change 2010-2015") {
+              pal <- colorNumeric(palette = "Blues", domain = pop.ft())
+              cp <- pal(pop.ft())
+          } else {
+              # Hard code the District of Columbia to be encoded as black
+              # (it is an outlier and messes up the colour scale)
+              i <- which.max(pop.ft())
+              pal <- colorNumeric(palette = "Blues", domain = pop.ft()[-i])
+              cp <- append(pal(pop.ft()[-i]), "#000000", i-1)
+          }
+          return(cp)
+      })
+      
+      palette.domain <- reactive({
+          if (input$rgdmft == "Population change 2010-2015") {
+              pd <- pop.ft()
+          } else {
+              # Exclude the District of Columbia from the legend colour gradient
+              # (it is an outlier and messes up the colour scale)
+              i <- which.max(pop.ft())
+              pd <- pop.ft()[-i]
+          }
+          return(pd)
+      })
+      
+      popup.long <- reactive({
+          if (input$rgdmft == "Population change 2010-2015") {
+              pul <- 'Population change [%]: '
+          } else if (input$rgdmft == "Population density 2010") {
+              pul <- 'Population density 2010 [pp/km2]: '
+          } else {
+              pul <- 'Population density 2015 [pp/km2]: '
+          }
+          return(pul)
+      })
+      
+      popup.short <- reactive({
+          if (input$rgdmft == "Population change 2010-2015") {
+              pus <- 'Pop.change [%]'
+          } else if (input$rgdmft == "Population density 2010") {
+              pus <- 'Pop.density 2010'
+          } else {
+              pus <- 'Pop.density 2015'
+          }
+          return(pus)
+      })
+    
+      output$population_byRegion <- renderLeaflet({
+        
+          mymap <- leaflet(options = leafletOptions(minZoom = 3, maxZoom = 5)) %>%
+                   setView(lng = -100.5795, lat = 37.8283, zoom = 4) %>%
+                   addProviderTiles(providers$CartoDB.Positron)
+        
+          for (s in region.states()) {
+            
+              index <- which(region.states() == s)
+              abs.index <- which(us_states$NAME == s)
+              lng <- region.geo()[[index]][[1]][[1]][,1]
+              lat <- region.geo()[[index]][[1]][[1]][,2]
+              
+              mymap <- addPolygons(mymap, lng = lng, lat = lat,
+                                   weight = 1.5, label = region.states()[index],
+                                   color = color.palette()[abs.index],
+                                   fillOpacity = 0.5,
+                                   popup = paste0(popup.long(),
+                                                  round(pop.ft()[abs.index], 2)))
+              
+              # Accommodate multi-polygons
+              if (length(region.geo()[[index]]) > 1) {
+              
+                  for (pol in 1:length(region.geo()[[index]])) {
+                    
+                      lng <- region.geo()[[index]][[pol]][[1]][,1]
+                      lat <- region.geo()[[index]][[pol]][[1]][,2]
+                      
+                      mymap <- addPolygons(mymap, lng = lng, lat = lat,
+                                           weight = 1.5, label = region.states()[index],
+                                           color = color.palette()[abs.index],
+                                           fillOpacity = 0.5,
+                                           popup = paste0(popup.long(),
+                                                          round(pop.ft()[abs.index], 2)))
+                  }
+              }
+          }
+          mymap <- addLegend(mymap, "bottomleft",
+                             pal = colorNumeric(palette = "Blues", domain = palette.domain()),
+                             values = palette.domain(),
+                             title = popup.short(),
+                             opacity = 0.5)
+          
+          return(mymap)
+      })
+  },
+  
+  options = list(height = 540, width = '100%')
+)
+```
+
+The **District of Columbia** is an outlier in terms of population density, which is probably related to it being the location of the nation's capital, hence concentrating a large population in about `r round(us_states$AREA[29], 0)` km^2^. Indeed, the capital's density is about 9 times larger than the second most dense state (**Rhode Island**). For this reason, the **District of Columbia** is not considered for the colour palette of the polygons infill colour or the legend colour gradient.
+
+
+The density maps confirm a historical salient feature of the country's demographics: the north-eastern coast concentrates significantly more population than the other regions. States like **California** and **Illinois** have moderate densities despite embedding the second (*Los Angeles*) and third (*Chicago*) largest cities, respectively.
+
+
+For the vast majority of states, the trend over the timespan from 2010 to 2015 has been to increase its population, the only two exceptions being **Michigan** and **Rhode Island** (whereby the latter still retains a high density nonetheless). Aside from the **District of Columbia**, the states with the greatest increase in population are large states from regions other than the north-east, such as **North Dakota**, **Utah** or **Texas**, all with relative increase values of about `r ceiling(((us_states$total_pop_15 - us_states$total_pop_10)/us_states$total_pop_10 * 100)[23])`%.

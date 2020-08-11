@@ -16,7 +16,7 @@ The `us_states` dataset comprises the following features for all 48 *continental
 
 To execute the app, simply open the `Rmd` file with RStudio and click on `Run Document` as shown below:
 
-<img src="https://github.com/AlfaBetaBeta/shinyApp-US-states/blob/master/img/RStudio-Screenshot.png" width=50% height=50%>
+<img src="https://github.com/AlfaBetaBeta/shinyApp-US-states/blob/master/img/RStudio-Screenshot.png" width=90% height=90%>
 
 ### App functionality 1: Aggregation by state/region
 

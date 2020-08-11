@@ -14,6 +14,9 @@ The `us_states` dataset comprises the following features for all 48 *continental
 * `total_pop_15`: numerical vector of total population in 2015
 * `geometry`: sfc_MULTIPOLYGON
 
+To execute the app, simply open the `Rmd` file with RStudio and click on `Run Document` as shown below:
+
+<img src="https://github.com/AlfaBetaBeta/shinyApp-US-states/blob/master/img/RStudio-Screenshot.png" width=50% height=50%>
 
 ### App functionality 1: Aggregation by state/region
 

@@ -31,3 +31,7 @@ Additionally, you can select your region of interest (tab `REGION`) for it to be
 The only demographic features available in the `us_states` dataset are the total population values in years 2010 and 2015. With these, you can inspect the relative change in population over the timespan or, combined with each state `AREA`, the population density for either year. You can focus on a specific `REGION` or on the entire country from the dropdown menus. Hovering over the active `REGION` enables the display of its state `NAME`s, and clicking on any state activates a popup with the demographic metric of interest.
 
 <img src="https://github.com/AlfaBetaBeta/shinyApp-US-states/blob/master/img/AppF2.png" width=100% height=100%>
+
+<img src="https://github.com/AlfaBetaBeta/shinyApp-US-states/blob/master/img/AppF2-Change.png" width=100% height=100%>
+
+<img src="https://github.com/AlfaBetaBeta/shinyApp-US-states/blob/master/img/AppF2-Density.png" width=100% height=100%>
